@@ -1684,7 +1684,7 @@ dependencies = [
  "codex-utils-readiness",
  "codex-utils-string",
  "codex-windows-sandbox",
- "core-foundation 0.9.4",
+ "core-foundation 0.10.1",
  "core_test_support",
  "ctor 0.6.3",
  "dirs",
@@ -2520,7 +2520,7 @@ dependencies = [
 name = "codex-utils-sleep-inhibitor"
 version = "1.2.1"
 dependencies = [
- "core-foundation 0.9.4",
+ "core-foundation 0.10.1",
  "tracing",
 ]
 
