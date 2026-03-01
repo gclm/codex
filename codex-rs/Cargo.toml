@@ -37,6 +37,7 @@ members = [
     "protocol",
     "rmcp-client",
     "responses-api-proxy",
+    "serve",
     "stdio-to-uds",
     "otel",
     "tui",
