@@ -24,14 +24,11 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 async fn test_config(temp_home: &TempDir) -> Config {
-    let mut config = ConfigBuilder::default()
+    ConfigBuilder::default()
         .codex_home(temp_home.path().to_path_buf())
         .build()
         .await
-        .expect("load config");
-    // Keep snapshots deterministic even when the host exports OPENAI_BASE_URL.
-    config.model_provider.base_url = None;
-    config
+        .expect("load config")
 }
 
 fn test_auth_manager(config: &Config) -> AuthManager {
@@ -68,9 +65,7 @@ fn sanitize_directory(lines: Vec<String>) -> Vec<String> {
     lines
         .into_iter()
         .map(|line| {
-            let line = if let (Some(dir_pos), Some(pipe_idx)) =
-                (line.find("Directory: "), line.rfind('│'))
-            {
+            if let (Some(dir_pos), Some(pipe_idx)) = (line.find("Directory: "), line.rfind('│')) {
                 let prefix = &line[..dir_pos + "Directory: ".len()];
                 let suffix = &line[pipe_idx..];
                 let content_width = pipe_idx.saturating_sub(dir_pos + "Directory: ".len());
@@ -84,48 +79,7 @@ fn sanitize_directory(lines: Vec<String>) -> Vec<String> {
                 rebuilt
             } else {
                 line
-            };
-
-            let Some(title_pos) = line.find("OpenAI Codex (v") else {
-                return line;
-            };
-            let version_start = title_pos + "OpenAI Codex (v".len();
-            let Some(close_rel) = line[version_start..].find(')') else {
-                return line;
-            };
-            let version_end = version_start + close_rel;
-            let replacement = "0.0.0";
-            let orig_len = version_end - version_start;
-
-            let Some(pipe_idx) = line.rfind('│') else {
-                let mut rebuilt = line[..version_start].to_string();
-                rebuilt.push_str(replacement);
-                rebuilt.push_str(&line[version_end..]);
-                return rebuilt;
-            };
-            if pipe_idx <= version_end {
-                return line;
             }
-
-            let mut between = line[version_end..pipe_idx].to_string();
-            if replacement.len() < orig_len {
-                between.push_str(&" ".repeat(orig_len - replacement.len()));
-            } else if replacement.len() > orig_len {
-                let to_trim = replacement.len() - orig_len;
-                for _ in 0..to_trim {
-                    if between.ends_with(' ') {
-                        between.pop();
-                    } else {
-                        return line;
-                    }
-                }
-            }
-
-            let mut rebuilt = line[..version_start].to_string();
-            rebuilt.push_str(replacement);
-            rebuilt.push_str(&between);
-            rebuilt.push_str(&line[pipe_idx..]);
-            rebuilt
         })
         .collect()
 }

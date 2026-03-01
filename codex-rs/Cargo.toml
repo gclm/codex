@@ -37,7 +37,6 @@ members = [
     "protocol",
     "rmcp-client",
     "responses-api-proxy",
-    "serve",
     "stdio-to-uds",
     "otel",
     "tui",
@@ -69,13 +68,13 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "1.2.1"
+version = "0.0.0"
 # Track the edition for all workspace crates in one place. Individual
 # crates can still override this value, but keeping it here means new
 # crates created with `cargo new -w ...` automatically inherit the 2024
 # edition.
 edition = "2024"
-license = "AGPL-3.0-only"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 # Internal
@@ -119,7 +118,6 @@ codex-shell-command = { path = "shell-command" }
 codex-shell-escalation = { path = "shell-escalation" }
 codex-skills = { path = "skills" }
 codex-state = { path = "state" }
-codex-serve = { path = "serve" }
 codex-stdio-to-uds = { path = "stdio-to-uds" }
 codex-test-macros = { path = "test-macros" }
 codex-tui = { path = "tui" }

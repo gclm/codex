@@ -2965,9 +2965,6 @@ pub struct CollabWaitingBeginEvent {
     /// Optional nicknames/roles for receivers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub receiver_agents: Vec<CollabAgentRef>,
-    /// Optional display name for receiver agents keyed by thread ID.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub receiver_names: HashMap<ThreadId, String>,
     /// ID of the waiting call.
     pub call_id: String,
 }
@@ -2981,9 +2978,6 @@ pub struct CollabWaitingEndEvent {
     /// Optional receiver metadata paired with final statuses.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_statuses: Vec<CollabAgentStatusEntry>,
-    /// Optional display name for receiver agents keyed by thread ID.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub receiver_names: HashMap<ThreadId, String>,
     /// Last known status of the receiver agents reported to the sender agent.
     pub statuses: HashMap<ThreadId, AgentStatus>,
 }

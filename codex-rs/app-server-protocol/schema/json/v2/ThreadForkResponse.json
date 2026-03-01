@@ -214,10 +214,7 @@
         "sendInput",
         "resumeAgent",
         "wait",
-        "closeAgent",
-        "spawnTeam",
-        "waitTeam",
-        "closeTeam"
+        "closeAgent"
       ],
       "type": "string"
     },

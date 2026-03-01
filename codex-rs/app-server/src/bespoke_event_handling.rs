@@ -784,7 +784,6 @@ pub(crate) async fn apply_bespoke_event_handling(
                 .await;
         }
         EventMsg::CollabWaitingBegin(begin_event) => {
-            let tool = collab_tool_from_wait_call_id(&begin_event.call_id);
             let receiver_thread_ids = begin_event
                 .receiver_thread_ids
                 .iter()
@@ -792,7 +791,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                 .collect();
             let item = ThreadItem::CollabAgentToolCall {
                 id: begin_event.call_id,
-                tool,
+                tool: CollabAgentTool::Wait,
                 status: V2CollabToolCallStatus::InProgress,
                 sender_thread_id: begin_event.sender_thread_id.to_string(),
                 receiver_thread_ids,
@@ -809,15 +808,13 @@ pub(crate) async fn apply_bespoke_event_handling(
                 .await;
         }
         EventMsg::CollabWaitingEnd(end_event) => {
-            let tool = collab_tool_from_wait_call_id(&end_event.call_id);
-            let status = if end_event.statuses.is_empty()
-                || end_event.statuses.values().any(|status| {
-                    matches!(
-                        status,
-                        codex_protocol::protocol::AgentStatus::Errored(_)
-                            | codex_protocol::protocol::AgentStatus::NotFound
-                    )
-                }) {
+            let status = if end_event.statuses.values().any(|status| {
+                matches!(
+                    status,
+                    codex_protocol::protocol::AgentStatus::Errored(_)
+                        | codex_protocol::protocol::AgentStatus::NotFound
+                )
+            }) {
                 V2CollabToolCallStatus::Failed
             } else {
                 V2CollabToolCallStatus::Completed
@@ -830,7 +827,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                 .collect();
             let item = ThreadItem::CollabAgentToolCall {
                 id: end_event.call_id,
-                tool,
+                tool: CollabAgentTool::Wait,
                 status,
                 sender_thread_id: end_event.sender_thread_id.to_string(),
                 receiver_thread_ids,
@@ -2173,22 +2170,6 @@ async fn on_command_execution_request_approval_response(
     }
 }
 
-const TEAM_SPAWN_CALL_PREFIX: &str = "team/spawn:";
-const TEAM_WAIT_CALL_PREFIX: &str = "team/wait:";
-const TEAM_CLOSE_CALL_PREFIX: &str = "team/close:";
-
-fn collab_tool_from_wait_call_id(call_id: &str) -> CollabAgentTool {
-    if call_id.starts_with(TEAM_SPAWN_CALL_PREFIX) {
-        CollabAgentTool::SpawnTeam
-    } else if call_id.starts_with(TEAM_WAIT_CALL_PREFIX) {
-        CollabAgentTool::WaitTeam
-    } else if call_id.starts_with(TEAM_CLOSE_CALL_PREFIX) {
-        CollabAgentTool::CloseTeam
-    } else {
-        CollabAgentTool::Wait
-    }
-}
-
 fn collab_resume_begin_item(
     begin_event: codex_protocol::protocol::CollabResumeBeginEvent,
 ) -> ThreadItem {
@@ -2349,26 +2330,6 @@ mod tests {
             map_file_change_approval_decision(FileChangeApprovalDecision::AcceptForSession);
         assert_eq!(decision, ReviewDecision::ApprovedForSession);
         assert_eq!(completion_status, None);
-    }
-
-    #[test]
-    fn collab_wait_call_id_prefix_maps_to_team_tools() {
-        assert_eq!(
-            collab_tool_from_wait_call_id(&format!("{TEAM_SPAWN_CALL_PREFIX}abc")),
-            CollabAgentTool::SpawnTeam
-        );
-        assert_eq!(
-            collab_tool_from_wait_call_id(&format!("{TEAM_WAIT_CALL_PREFIX}abc")),
-            CollabAgentTool::WaitTeam
-        );
-        assert_eq!(
-            collab_tool_from_wait_call_id(&format!("{TEAM_CLOSE_CALL_PREFIX}abc")),
-            CollabAgentTool::CloseTeam
-        );
-        assert_eq!(
-            collab_tool_from_wait_call_id("call-1"),
-            CollabAgentTool::Wait
-        );
     }
 
     #[test]
