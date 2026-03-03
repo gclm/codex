@@ -78,7 +78,9 @@ pub(super) async fn lock_file_exclusive(path: &Path) -> Result<FileLockGuard, io
 
     let mutex = {
         let locks = IN_PROCESS_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-        let mut locks = locks.lock().unwrap_or_else(|err| err.into_inner());
+        let mut locks = locks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         locks
             .entry(path.to_path_buf())
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
