@@ -27,6 +27,12 @@ pub async fn handle(
         ));
     }
 
+    let (receiver_agent_nickname, receiver_agent_role) = session
+        .services
+        .agent_control
+        .get_agent_nickname_and_role(receiver_thread_id)
+        .await
+        .unwrap_or((None, None));
     session
         .send_event(
             &turn,
@@ -34,8 +40,8 @@ pub async fn handle(
                 call_id: call_id.clone(),
                 sender_thread_id: session.conversation_id,
                 receiver_thread_id,
-                receiver_agent_nickname: None,
-                receiver_agent_role: None,
+                receiver_agent_nickname,
+                receiver_agent_role,
             }
             .into(),
         )
@@ -66,6 +72,12 @@ pub async fn handle(
         None
     };
 
+    let (receiver_agent_nickname, receiver_agent_role) = session
+        .services
+        .agent_control
+        .get_agent_nickname_and_role(receiver_thread_id)
+        .await
+        .unwrap_or((None, None));
     session
         .send_event(
             &turn,
@@ -73,8 +85,8 @@ pub async fn handle(
                 call_id,
                 sender_thread_id: session.conversation_id,
                 receiver_thread_id,
-                receiver_agent_nickname: None,
-                receiver_agent_role: None,
+                receiver_agent_nickname,
+                receiver_agent_role,
                 status: status.clone(),
             }
             .into(),

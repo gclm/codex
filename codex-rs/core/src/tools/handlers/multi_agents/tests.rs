@@ -928,6 +928,74 @@ async fn send_input_accepts_structured_items() {
 }
 
 #[tokio::test]
+async fn send_input_includes_receiver_metadata_in_events() {
+    let (mut session, turn, rx) = make_session_and_context_with_rx().await;
+    let manager = thread_manager();
+    Arc::get_mut(&mut session)
+        .expect("session should be unique")
+        .services
+        .agent_control = manager.agent_control();
+
+    let config = turn.config.as_ref().clone();
+    let (agent_id, _notification_source) = session
+        .services
+        .agent_control
+        .spawn_agent_thread(
+            config,
+            Some(thread_spawn_source(session.conversation_id, 1)),
+        )
+        .await
+        .expect("spawn_agent_thread should succeed");
+    let (expected_nickname, expected_role) = session
+        .services
+        .agent_control
+        .get_agent_nickname_and_role(agent_id)
+        .await
+        .expect("spawned agent should have metadata");
+    assert!(
+        expected_nickname
+            .as_deref()
+            .is_some_and(|nickname| !nickname.trim().is_empty()),
+        "agent nickname should be populated"
+    );
+
+    MultiAgentHandler
+        .handle(invocation(
+            session.clone(),
+            turn,
+            "send_input",
+            function_payload(json!({
+                "id": agent_id.to_string(),
+                "message": "hi"
+            })),
+        ))
+        .await
+        .expect("send_input should succeed");
+
+    let interaction_end = timeout(Duration::from_secs(5), async {
+        loop {
+            let event = rx.recv().await.expect("event should be received");
+            match event.msg {
+                codex_protocol::protocol::EventMsg::CollabAgentInteractionEnd(ev)
+                    if ev.call_id == "call-1" =>
+                {
+                    break ev;
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("send_input should emit a CollabAgentInteractionEnd event");
+
+    assert_eq!(interaction_end.receiver_thread_id, agent_id);
+    assert_eq!(interaction_end.receiver_agent_nickname, expected_nickname);
+    assert_eq!(interaction_end.receiver_agent_role, expected_role);
+
+    let _ = manager.agent_control().shutdown_agent(agent_id).await;
+}
+
+#[tokio::test]
 async fn resume_agent_rejects_invalid_id() {
     let (session, turn) = make_session_and_context().await;
     let invocation = invocation(
@@ -1368,6 +1436,111 @@ async fn wait_returns_final_status_without_timeout() {
         }
     );
     assert_eq!(success, None);
+}
+
+#[tokio::test]
+async fn wait_includes_receiver_metadata_in_events() {
+    let (mut session, turn, rx) = make_session_and_context_with_rx().await;
+    let manager = thread_manager();
+    Arc::get_mut(&mut session)
+        .expect("session should be unique")
+        .services
+        .agent_control = manager.agent_control();
+
+    let config = turn.config.as_ref().clone();
+    let (agent_id, _notification_source) = session
+        .services
+        .agent_control
+        .spawn_agent_thread(
+            config,
+            Some(thread_spawn_source(session.conversation_id, 1)),
+        )
+        .await
+        .expect("spawn_agent_thread should succeed");
+    let (expected_nickname, expected_role) = session
+        .services
+        .agent_control
+        .get_agent_nickname_and_role(agent_id)
+        .await
+        .expect("spawned agent should have metadata");
+    assert!(
+        expected_nickname
+            .as_deref()
+            .is_some_and(|nickname| !nickname.trim().is_empty()),
+        "agent nickname should be populated"
+    );
+
+    let mut status_rx = manager
+        .agent_control()
+        .subscribe_status(agent_id)
+        .await
+        .expect("subscribe should succeed");
+    let thread = manager
+        .get_thread(agent_id)
+        .await
+        .expect("spawned agent should exist");
+    let _ = thread
+        .submit(Op::Shutdown {})
+        .await
+        .expect("shutdown should submit");
+    let _ = timeout(Duration::from_secs(5), status_rx.changed())
+        .await
+        .expect("shutdown status should arrive");
+
+    MultiAgentHandler
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "wait",
+            function_payload(json!({
+                "ids": [agent_id.to_string()],
+                "timeout_ms": 1000
+            })),
+        ))
+        .await
+        .expect("wait should succeed");
+
+    let (waiting_begin, waiting_end) = timeout(Duration::from_secs(5), async {
+        let mut waiting_begin = None;
+        let mut waiting_end = None;
+        while waiting_begin.is_none() || waiting_end.is_none() {
+            let event = rx.recv().await.expect("event should be received");
+            match event.msg {
+                codex_protocol::protocol::EventMsg::CollabWaitingBegin(ev)
+                    if ev.call_id == "call-1" =>
+                {
+                    waiting_begin = Some(ev);
+                }
+                codex_protocol::protocol::EventMsg::CollabWaitingEnd(ev)
+                    if ev.call_id == "call-1" =>
+                {
+                    waiting_end = Some(ev);
+                }
+                _ => {}
+            }
+        }
+        (waiting_begin.unwrap(), waiting_end.unwrap())
+    })
+    .await
+    .expect("wait should emit CollabWaitingBegin and CollabWaitingEnd events");
+
+    let begin_ref = waiting_begin
+        .receiver_agents
+        .iter()
+        .find(|receiver| receiver.thread_id == agent_id)
+        .expect("waiting begin should include receiver agent ref");
+    assert_eq!(begin_ref.agent_nickname, expected_nickname);
+    assert_eq!(begin_ref.agent_role, expected_role);
+
+    let end_entry = waiting_end
+        .agent_statuses
+        .iter()
+        .find(|entry| entry.thread_id == agent_id)
+        .expect("waiting end should include agent status entry");
+    assert_eq!(end_entry.agent_nickname, expected_nickname);
+    assert_eq!(end_entry.agent_role, expected_role);
+
+    let _ = manager.agent_control().shutdown_agent(agent_id).await;
 }
 
 #[tokio::test]

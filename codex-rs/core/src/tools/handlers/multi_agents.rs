@@ -573,6 +573,12 @@ async fn send_input_to_member(
         .agent_control
         .get_status(receiver_thread_id)
         .await;
+    let (receiver_agent_nickname, receiver_agent_role) = session
+        .services
+        .agent_control
+        .get_agent_nickname_and_role(receiver_thread_id)
+        .await
+        .unwrap_or((None, None));
     session
         .send_event(
             turn,
@@ -580,8 +586,8 @@ async fn send_input_to_member(
                 call_id,
                 sender_thread_id: session.conversation_id,
                 receiver_thread_id,
-                receiver_agent_nickname: None,
-                receiver_agent_role: None,
+                receiver_agent_nickname,
+                receiver_agent_role,
                 prompt,
                 status,
             }
@@ -1635,6 +1641,12 @@ pub mod close_agent {
             Ok(mut status_rx) => status_rx.borrow_and_update().clone(),
             Err(_) => session.services.agent_control.get_status(agent_id).await,
         };
+        let (receiver_agent_nickname, receiver_agent_role) = session
+            .services
+            .agent_control
+            .get_agent_nickname_and_role(agent_id)
+            .await
+            .unwrap_or((None, None));
         let result = session
             .services
             .agent_control
@@ -1647,8 +1659,8 @@ pub mod close_agent {
                     call_id,
                     sender_thread_id: session.conversation_id,
                     receiver_thread_id: agent_id,
-                    receiver_agent_nickname: None,
-                    receiver_agent_role: None,
+                    receiver_agent_nickname,
+                    receiver_agent_role,
                     status: status.clone(),
                 }
                 .into(),

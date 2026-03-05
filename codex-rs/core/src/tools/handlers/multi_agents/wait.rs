@@ -33,13 +33,28 @@ pub async fn handle(
         .collect::<Result<Vec<_>, _>>()?;
     let timeout_ms = normalize_wait_timeout(args.timeout_ms)?;
 
+    let mut receiver_agents = Vec::with_capacity(receiver_thread_ids.len());
+    for receiver_thread_id in &receiver_thread_ids {
+        let (agent_nickname, agent_role) = session
+            .services
+            .agent_control
+            .get_agent_nickname_and_role(*receiver_thread_id)
+            .await
+            .unwrap_or((None, None));
+        receiver_agents.push(CollabAgentRef {
+            thread_id: *receiver_thread_id,
+            agent_nickname,
+            agent_role,
+        });
+    }
+
     session
         .send_event(
             &turn,
             CollabWaitingBeginEvent {
                 sender_thread_id: session.conversation_id,
                 receiver_thread_ids: receiver_thread_ids.clone(),
-                receiver_agents: Vec::new(),
+                receiver_agents,
                 call_id: call_id.clone(),
             }
             .into(),
@@ -56,15 +71,27 @@ pub async fn handle(
     {
         Ok(result) => result,
         Err((id, err)) => {
-            let statuses =
-                HashMap::from([(id, session.services.agent_control.get_status(id).await)]);
+            let status = session.services.agent_control.get_status(id).await;
+            let (agent_nickname, agent_role) = session
+                .services
+                .agent_control
+                .get_agent_nickname_and_role(id)
+                .await
+                .unwrap_or((None, None));
+            let statuses = HashMap::from([(id, status.clone())]);
+            let agent_statuses = vec![CollabAgentStatusEntry {
+                thread_id: id,
+                agent_nickname,
+                agent_role,
+                status,
+            }];
             session
                 .send_event(
                     &turn,
                     CollabWaitingEndEvent {
                         sender_thread_id: session.conversation_id,
                         call_id: call_id.clone(),
-                        agent_statuses: Vec::new(),
+                        agent_statuses,
                         statuses,
                     }
                     .into(),
@@ -85,6 +112,25 @@ pub async fn handle(
         timed_out: wait_result.timed_out,
     };
 
+    let mut agent_statuses = Vec::with_capacity(statuses_map.len());
+    for receiver_thread_id in &receiver_thread_ids {
+        let Some(status) = statuses_map.get(receiver_thread_id) else {
+            continue;
+        };
+        let (agent_nickname, agent_role) = session
+            .services
+            .agent_control
+            .get_agent_nickname_and_role(*receiver_thread_id)
+            .await
+            .unwrap_or((None, None));
+        agent_statuses.push(CollabAgentStatusEntry {
+            thread_id: *receiver_thread_id,
+            agent_nickname,
+            agent_role,
+            status: status.clone(),
+        });
+    }
+
     // Final event emission.
     session
         .send_event(
@@ -92,7 +138,7 @@ pub async fn handle(
             CollabWaitingEndEvent {
                 sender_thread_id: session.conversation_id,
                 call_id,
-                agent_statuses: Vec::new(),
+                agent_statuses,
                 statuses: statuses_map,
             }
             .into(),
