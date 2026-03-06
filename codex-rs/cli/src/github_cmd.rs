@@ -117,14 +117,13 @@ impl MinPermission {
         let Some(actual_rank) = permission_rank(actual) else {
             return false;
         };
-        let required_rank = permission_rank(match self {
-            MinPermission::Read => "read",
-            MinPermission::Triage => "triage",
-            MinPermission::Write => "write",
-            MinPermission::Maintain => "maintain",
-            MinPermission::Admin => "admin",
-        })
-        .expect("hardcoded permissions must have ranks");
+        let required_rank = match self {
+            MinPermission::Read => 1,
+            MinPermission::Triage => 2,
+            MinPermission::Write => 3,
+            MinPermission::Maintain => 4,
+            MinPermission::Admin => 5,
+        };
         actual_rank >= required_rank
     }
 }
@@ -528,13 +527,15 @@ where
 async fn gc_loop(state: AppState) {
     loop {
         if let Some(ttl) = state.delivery_ttl
-            && let Err(err) = gc_delivery_markers(state.delivery_markers_dir.as_ref(), ttl).await {
-                eprintln!("delivery gc failed: {err:#}");
-            }
+            && let Err(err) = gc_delivery_markers(state.delivery_markers_dir.as_ref(), ttl).await
+        {
+            eprintln!("delivery gc failed: {err:#}");
+        }
         if let Some(ttl) = state.repo_ttl
-            && let Err(err) = gc_repo_caches(&state, ttl).await {
-                eprintln!("repo gc failed: {err:#}");
-            }
+            && let Err(err) = gc_repo_caches(&state, ttl).await
+        {
+            eprintln!("repo gc failed: {err:#}");
+        }
         tokio::time::sleep(GC_INTERVAL).await;
     }
 }
@@ -872,7 +873,9 @@ fn verify_github_signature(secret: &[u8], body: &[u8], signature: Option<&Header
         return false;
     };
 
-    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC keys have no fixed length");
+    let Ok(mut mac) = HmacSha256::new_from_slice(secret) else {
+        return false;
+    };
     mac.update(body);
     mac.verify_slice(&sig_bytes).is_ok()
 }
@@ -1052,9 +1055,7 @@ fn parse_issue_comment(
             number: issue_number,
         },
         prompt,
-        response_target: ResponseTarget::IssueComment {
-            issue_number,
-        },
+        response_target: ResponseTarget::IssueComment { issue_number },
     }))
 }
 
@@ -4488,7 +4489,7 @@ mod tests {
     async fn ensure_clone_times_out_then_falls_back() {
         let temp = tempfile::tempdir().unwrap();
         let state = test_state(&temp);
-        let _timeout_guard = TestGitCommandTimeoutGuard::set(Duration::from_millis(10));
+        let _timeout_guard = TestGitCommandTimeoutGuard::set(Duration::from_millis(100));
 
         let repo_dir = temp.path().join("repo");
         let parent = repo_dir.parent().unwrap();
@@ -4496,7 +4497,7 @@ mod tests {
 
         let bin_dir = temp.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        write_exe(bin_dir.join("gh").as_path(), "#!/bin/sh\nsleep 60\n");
+        write_exe(bin_dir.join("gh").as_path(), "#!/bin/sh\nexec sleep 5\n");
         write_exe(
             bin_dir.join("git").as_path(),
             &format!(
