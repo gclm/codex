@@ -256,7 +256,7 @@ cargo_linker_wrapper="${tool_root}/cargo-linker"
 cat >"${cargo_linker_wrapper}" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-exec "${musl_linker}" "$@" -lm -lgcc_eh
+exec "${musl_linker}" "\$@" -lm -lgcc_eh
 EOF
 chmod +x "${cargo_linker_wrapper}"
 
