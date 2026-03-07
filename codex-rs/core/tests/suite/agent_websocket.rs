@@ -183,7 +183,10 @@ async fn websocket_v2_test_codex_shell_chain() -> Result<()> {
     .await;
 
     let mut builder = test_codex().with_config(|config| {
-        config.features.enable(Feature::ResponsesWebsocketsV2);
+        config
+            .features
+            .enable(Feature::ResponsesWebsocketsV2)
+            .expect("test config should allow feature update");
     });
 
     let test = builder.build_with_websocket_server(&server).await?;

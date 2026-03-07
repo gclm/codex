@@ -66,6 +66,9 @@ use codex_protocol::protocol::W3cTraceContext;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use tracing::info_span;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use tungstenite::Message;
 use tungstenite::WebSocket;
 use tungstenite::connect;
@@ -89,6 +92,7 @@ const NOTIFICATIONS_TO_OPT_OUT: &[&str] = &[
     "codex/event/item_started",
     "codex/event/item_completed",
     // v2 item deltas.
+    "command/exec/outputDelta",
     "item/agentMessage/delta",
     "item/plan/delta",
     "item/commandExecution/outputDelta",
@@ -236,7 +240,7 @@ enum CliCommand {
     },
 }
 
-pub fn run() -> Result<()> {
+pub async fn run() -> Result<()> {
     let Cli {
         codex_bin,
         url,
@@ -256,7 +260,7 @@ pub fn run() -> Result<()> {
         CliCommand::SendMessage { user_message } => {
             ensure_dynamic_tools_unused(&dynamic_tools, "send-message")?;
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            send_message(&endpoint, &config_overrides, user_message)
+            send_message(&endpoint, &config_overrides, user_message).await
         }
         CliCommand::SendMessageV2 {
             experimental_api,
@@ -270,6 +274,7 @@ pub fn run() -> Result<()> {
                 experimental_api,
                 &dynamic_tools,
             )
+            .await
         }
         CliCommand::ResumeMessageV2 {
             thread_id,
@@ -283,28 +288,29 @@ pub fn run() -> Result<()> {
                 user_message,
                 &dynamic_tools,
             )
+            .await
         }
         CliCommand::ThreadResume { thread_id } => {
             ensure_dynamic_tools_unused(&dynamic_tools, "thread-resume")?;
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            thread_resume_follow(&endpoint, &config_overrides, thread_id)
+            thread_resume_follow(&endpoint, &config_overrides, thread_id).await
         }
         CliCommand::Watch => {
             ensure_dynamic_tools_unused(&dynamic_tools, "watch")?;
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            watch(&endpoint, &config_overrides)
+            watch(&endpoint, &config_overrides).await
         }
         CliCommand::TriggerCmdApproval { user_message } => {
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            trigger_cmd_approval(&endpoint, &config_overrides, user_message, &dynamic_tools)
+            trigger_cmd_approval(&endpoint, &config_overrides, user_message, &dynamic_tools).await
         }
         CliCommand::TriggerPatchApproval { user_message } => {
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            trigger_patch_approval(&endpoint, &config_overrides, user_message, &dynamic_tools)
+            trigger_patch_approval(&endpoint, &config_overrides, user_message, &dynamic_tools).await
         }
         CliCommand::NoTriggerCmdApproval => {
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            no_trigger_cmd_approval(&endpoint, &config_overrides, &dynamic_tools)
+            no_trigger_cmd_approval(&endpoint, &config_overrides, &dynamic_tools).await
         }
         CliCommand::SendFollowUpV2 {
             first_message,
@@ -318,6 +324,7 @@ pub fn run() -> Result<()> {
                 follow_up_message,
                 &dynamic_tools,
             )
+            .await
         }
         CliCommand::TriggerZshForkMultiCmdApproval {
             user_message,
@@ -333,26 +340,27 @@ pub fn run() -> Result<()> {
                 abort_on,
                 &dynamic_tools,
             )
+            .await
         }
         CliCommand::TestLogin => {
             ensure_dynamic_tools_unused(&dynamic_tools, "test-login")?;
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            test_login(&endpoint, &config_overrides)
+            test_login(&endpoint, &config_overrides).await
         }
         CliCommand::GetAccountRateLimits => {
             ensure_dynamic_tools_unused(&dynamic_tools, "get-account-rate-limits")?;
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            get_account_rate_limits(&endpoint, &config_overrides)
+            get_account_rate_limits(&endpoint, &config_overrides).await
         }
         CliCommand::ModelList => {
             ensure_dynamic_tools_unused(&dynamic_tools, "model-list")?;
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            model_list(&endpoint, &config_overrides)
+            model_list(&endpoint, &config_overrides).await
         }
         CliCommand::ThreadList { limit } => {
             ensure_dynamic_tools_unused(&dynamic_tools, "thread-list")?;
             let endpoint = resolve_endpoint(codex_bin, url)?;
-            thread_list(&endpoint, &config_overrides, limit)
+            thread_list(&endpoint, &config_overrides, limit).await
         }
     }
 }
@@ -487,7 +495,15 @@ fn shell_quote(input: &str) -> String {
     format!("'{}'", input.replace('\'', "'\\''"))
 }
 
-fn send_message(
+struct SendMessagePolicies<'a> {
+    command_name: &'static str,
+    experimental_api: bool,
+    approval_policy: Option<AskForApproval>,
+    sandbox_policy: Option<SandboxPolicy>,
+    dynamic_tools: &'a Option<Vec<DynamicToolSpec>>,
+}
+
+async fn send_message(
     endpoint: &Endpoint,
     config_overrides: &[String],
     user_message: String,
@@ -504,7 +520,7 @@ fn send_message(
     )
 }
 
-pub fn send_message_v2(
+pub async fn send_message_v2(
     codex_bin: &Path,
     config_overrides: &[String],
     user_message: String,
@@ -518,9 +534,10 @@ pub fn send_message_v2(
         true,
         dynamic_tools,
     )
+    .await
 }
 
-fn send_message_v2_endpoint(
+async fn send_message_v2_endpoint(
     endpoint: &Endpoint,
     config_overrides: &[String],
     user_message: String,
@@ -535,14 +552,18 @@ fn send_message_v2_endpoint(
         endpoint,
         config_overrides,
         user_message,
-        experimental_api,
-        None,
-        None,
-        dynamic_tools,
+        SendMessagePolicies {
+            command_name: "send-message-v2",
+            experimental_api,
+            approval_policy: None,
+            sandbox_policy: None,
+            dynamic_tools,
+        },
     )
+    .await
 }
 
-fn trigger_zsh_fork_multi_cmd_approval(
+async fn trigger_zsh_fork_multi_cmd_approval(
     endpoint: &Endpoint,
     config_overrides: &[String],
     user_message: Option<String>,
@@ -640,7 +661,7 @@ fn trigger_zsh_fork_multi_cmd_approval(
     })
 }
 
-fn resume_message_v2(
+async fn resume_message_v2(
     endpoint: &Endpoint,
     config_overrides: &[String],
     thread_id: String,
@@ -675,37 +696,39 @@ fn resume_message_v2(
     })
 }
 
-fn thread_resume_follow(
+async fn thread_resume_follow(
     endpoint: &Endpoint,
     config_overrides: &[String],
     thread_id: String,
 ) -> Result<()> {
-    let mut client = CodexClient::connect(endpoint, config_overrides)?;
+    with_client("thread-resume", endpoint, config_overrides, |client| {
+        let initialize = client.initialize()?;
+        println!("< initialize response: {initialize:?}");
 
-    let initialize = client.initialize()?;
-    println!("< initialize response: {initialize:?}");
+        let resume_response = client.thread_resume(ThreadResumeParams {
+            thread_id,
+            ..Default::default()
+        })?;
+        println!("< thread/resume response: {resume_response:?}");
+        println!("< streaming notifications until process is terminated");
 
-    let resume_response = client.thread_resume(ThreadResumeParams {
-        thread_id,
-        ..Default::default()
-    })?;
-    println!("< thread/resume response: {resume_response:?}");
-    println!("< streaming notifications until process is terminated");
-
-    client.stream_notifications_forever()
+        client.stream_notifications_forever()
+    })
+    .await
 }
 
-fn watch(endpoint: &Endpoint, config_overrides: &[String]) -> Result<()> {
-    let mut client = CodexClient::connect(endpoint, config_overrides)?;
+async fn watch(endpoint: &Endpoint, config_overrides: &[String]) -> Result<()> {
+    with_client("watch", endpoint, config_overrides, |client| {
+        let initialize = client.initialize()?;
+        println!("< initialize response: {initialize:?}");
+        println!("< streaming inbound messages until process is terminated");
 
-    let initialize = client.initialize()?;
-    println!("< initialize response: {initialize:?}");
-    println!("< streaming inbound messages until process is terminated");
-
-    client.stream_notifications_forever()
+        client.stream_notifications_forever()
+    })
+    .await
 }
 
-fn trigger_cmd_approval(
+async fn trigger_cmd_approval(
     endpoint: &Endpoint,
     config_overrides: &[String],
     user_message: Option<String>,
@@ -718,16 +741,21 @@ fn trigger_cmd_approval(
         endpoint,
         config_overrides,
         message,
-        true,
-        Some(AskForApproval::OnRequest),
-        Some(SandboxPolicy::ReadOnly {
-            access: ReadOnlyAccess::FullAccess,
-        }),
-        dynamic_tools,
+        SendMessagePolicies {
+            command_name: "trigger-cmd-approval",
+            experimental_api: true,
+            approval_policy: Some(AskForApproval::OnRequest),
+            sandbox_policy: Some(SandboxPolicy::ReadOnly {
+                access: ReadOnlyAccess::FullAccess,
+                network_access: false,
+            }),
+            dynamic_tools,
+        },
     )
+    .await
 }
 
-fn trigger_patch_approval(
+async fn trigger_patch_approval(
     endpoint: &Endpoint,
     config_overrides: &[String],
     user_message: Option<String>,
@@ -740,16 +768,21 @@ fn trigger_patch_approval(
         endpoint,
         config_overrides,
         message,
-        true,
-        Some(AskForApproval::OnRequest),
-        Some(SandboxPolicy::ReadOnly {
-            access: ReadOnlyAccess::FullAccess,
-        }),
-        dynamic_tools,
+        SendMessagePolicies {
+            command_name: "trigger-patch-approval",
+            experimental_api: true,
+            approval_policy: Some(AskForApproval::OnRequest),
+            sandbox_policy: Some(SandboxPolicy::ReadOnly {
+                access: ReadOnlyAccess::FullAccess,
+                network_access: false,
+            }),
+            dynamic_tools,
+        },
     )
+    .await
 }
 
-fn no_trigger_cmd_approval(
+async fn no_trigger_cmd_approval(
     endpoint: &Endpoint,
     config_overrides: &[String],
     dynamic_tools: &Option<Vec<DynamicToolSpec>>,
@@ -759,21 +792,22 @@ fn no_trigger_cmd_approval(
         endpoint,
         config_overrides,
         prompt.to_string(),
-        true,
-        None,
-        None,
-        dynamic_tools,
+        SendMessagePolicies {
+            command_name: "no-trigger-cmd-approval",
+            experimental_api: true,
+            approval_policy: None,
+            sandbox_policy: None,
+            dynamic_tools,
+        },
     )
+    .await
 }
 
-fn send_message_v2_with_policies(
+async fn send_message_v2_with_policies(
     endpoint: &Endpoint,
     config_overrides: &[String],
     user_message: String,
-    experimental_api: bool,
-    approval_policy: Option<AskForApproval>,
-    sandbox_policy: Option<SandboxPolicy>,
-    dynamic_tools: &Option<Vec<DynamicToolSpec>>,
+    policies: SendMessagePolicies<'_>,
 ) -> Result<()> {
     with_client(endpoint, config_overrides, |client| {
         let initialize = client.initialize_with_experimental_api(experimental_api)?;
@@ -805,7 +839,7 @@ fn send_message_v2_with_policies(
     })
 }
 
-fn send_follow_up_v2(
+async fn send_follow_up_v2(
     endpoint: &Endpoint,
     config_overrides: &[String],
     first_message: String,
@@ -1299,8 +1333,18 @@ impl CodexClient {
     where
         T: DeserializeOwned,
     {
-        self.write_request(&request)?;
-        self.wait_for_response(request_id, method)
+        let request_span = info_span!(
+            "app_server_test_client.request",
+            otel.kind = "client",
+            otel.name = method,
+            rpc.system = "jsonrpc",
+            rpc.method = method,
+            rpc.request_id = ?request_id,
+        );
+        request_span.in_scope(|| {
+            self.write_request(&request)?;
+            self.wait_for_response(request_id, method)
+        })
     }
 
     fn write_request(&mut self, request: &ClientRequest) -> Result<()> {
@@ -1607,6 +1651,85 @@ fn generate_parent_span_id() -> String {
 fn print_multiline_with_prefix(prefix: &str, payload: &str) {
     for line in payload.lines() {
         println!("{prefix}{line}");
+    }
+}
+
+struct TestClientTracing {
+    _otel_provider: Option<OtelProvider>,
+    traces_enabled: bool,
+}
+
+impl TestClientTracing {
+    async fn initialize(config_overrides: &[String]) -> Result<Self> {
+        let cli_kv_overrides = CliConfigOverrides {
+            raw_overrides: config_overrides.to_vec(),
+        }
+        .parse_overrides()
+        .map_err(|e| anyhow::anyhow!("error parsing -c overrides: {e}"))?;
+        let config = Config::load_with_cli_overrides(cli_kv_overrides)
+            .await
+            .context("error loading config")?;
+        let otel_provider = codex_core::otel_init::build_provider(
+            &config,
+            env!("CARGO_PKG_VERSION"),
+            Some(OTEL_SERVICE_NAME),
+            DEFAULT_ANALYTICS_ENABLED,
+        )
+        .map_err(|e| anyhow::anyhow!("error loading otel config: {e}"))?;
+        let traces_enabled = otel_provider
+            .as_ref()
+            .and_then(|provider| provider.tracer_provider.as_ref())
+            .is_some();
+        if let Some(provider) = otel_provider.as_ref()
+            && traces_enabled
+        {
+            let _ = tracing_subscriber::registry()
+                .with(provider.tracing_layer())
+                .try_init();
+        }
+        Ok(Self {
+            traces_enabled,
+            _otel_provider: otel_provider,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TraceSummary {
+    Enabled { url: String },
+    Disabled,
+}
+
+impl TraceSummary {
+    fn capture(traces_enabled: bool) -> Self {
+        if !traces_enabled {
+            return Self::Disabled;
+        }
+        current_span_w3c_trace_context()
+            .as_ref()
+            .and_then(trace_url_from_context)
+            .map_or(Self::Disabled, |url| Self::Enabled { url })
+    }
+}
+
+fn trace_url_from_context(trace: &W3cTraceContext) -> Option<String> {
+    let traceparent = trace.traceparent.as_deref()?;
+    let mut parts = traceparent.split('-');
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(_version), Some(trace_id), Some(_span_id), Some(_trace_flags))
+            if trace_id.len() == 32 =>
+        {
+            Some(format!("go/trace/{trace_id}"))
+        }
+        _ => None,
+    }
+}
+
+fn print_trace_summary(trace_summary: &TraceSummary) {
+    println!("\n[Datadog trace]");
+    match trace_summary {
+        TraceSummary::Enabled { url } => println!("{url}\n"),
+        TraceSummary::Disabled => println!("{TRACE_DISABLED_MESSAGE}\n"),
     }
 }
 

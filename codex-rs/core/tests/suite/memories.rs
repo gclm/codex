@@ -310,6 +310,7 @@ async fn web_search_pollution_moves_selected_thread_into_removed_phase2_inputs()
 }
 
 async fn build_test_codex(server: &wiremock::MockServer, home: Arc<TempDir>) -> Result<TestCodex> {
+    #[allow(clippy::expect_used)]
     let mut builder = test_codex().with_home(home).with_config(|config| {
         config.features.enable(Feature::Sqlite);
         config.features.enable(Feature::MemoryTool);

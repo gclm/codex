@@ -43,6 +43,7 @@ const AUDIO_IN_QUEUE_CAPACITY: usize = 256;
 const USER_TEXT_IN_QUEUE_CAPACITY: usize = 64;
 const HANDOFF_OUT_QUEUE_CAPACITY: usize = 64;
 const OUTPUT_EVENTS_QUEUE_CAPACITY: usize = 256;
+const REALTIME_STARTUP_CONTEXT_TOKEN_BUDGET: usize = 5_000;
 
 pub(crate) struct RealtimeConversationManager {
     state: Mutex<Option<ConversationState>>,
@@ -326,7 +327,13 @@ pub(crate) async fn handle_start(
             msg,
         };
         while let Ok(event) = events_rx.recv().await {
-            debug!(conversation_id = %sess_clone.conversation_id, "received realtime conversation event");
+            // if not audio out, log the event
+            if !matches!(event, RealtimeEvent::AudioOut(_)) {
+                info!(
+                    event = ?event,
+                    "received realtime conversation event"
+                );
+            }
             let maybe_routed_text = match &event {
                 RealtimeEvent::HandoffRequested(handoff) => {
                     realtime_text_from_handoff_request(handoff)
