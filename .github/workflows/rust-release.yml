@@ -428,7 +428,7 @@ jobs:
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             asset_suffix: -legacy
-            legacy_musl: 'true'
+            legacy_musl: "true"
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
 

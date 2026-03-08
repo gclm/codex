@@ -124,7 +124,7 @@ jobs:
             target: x86_64-unknown-linux-musl
             profile: release
             asset_suffix: -legacy
-            legacy_musl: 'true'
+            legacy_musl: "true"
 
     steps:
       - uses: actions/checkout@v6
