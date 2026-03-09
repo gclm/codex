@@ -457,8 +457,14 @@ jobs:
             Remove-Item Env:\HODEX_CONTROLLER_URL_BASE -ErrorAction SilentlyContinue
             Remove-Item Env:\HODEXCTL_NO_PATH_UPDATE -ErrorAction SilentlyContinue
 
-            $statusOutput = (& $wrapper status 2>&1 | Out-String)
-            if ($statusOutput -notlike "*状态目录: $stateDir*") { throw "wrapper status did not use custom state dir" }
+            & $wrapper relink
+            if (!(Test-Path $controllerCopy)) { throw "hodexctl controller missing after wrapper relink" }
+            if (!(Test-Path $wrapper)) { throw "hodexctl wrapper missing after wrapper relink" }
+
+            & $wrapper uninstall
+            if (Test-Path $controllerCopy) { throw "hodexctl controller not removed by wrapper uninstall" }
+            if (Test-Path $wrapper) { throw "hodexctl wrapper not removed by wrapper uninstall" }
+            if (Test-Path (Join-Path $stateDir 'state.json')) { throw "wrapper uninstall did not remove custom state dir" }
           } finally {
             Remove-Item Env:\HODEX_STATE_DIR -ErrorAction SilentlyContinue
             Remove-Item Env:\HODEXCTL_REPO -ErrorAction SilentlyContinue
