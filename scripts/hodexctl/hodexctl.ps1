@@ -758,7 +758,7 @@ function Normalize-Parameters {
             exit 0
         }
         "source" {
-            if ($PSBoundParameters.ContainsKey("Version")) {
+            if ($script:RequestedVersion -in @("install", "update", "rebuild", "switch", "status", "uninstall", "list", "help")) {
                 $script:SourceAction = $script:RequestedVersion
             } else {
                 $script:SourceAction = "list"
