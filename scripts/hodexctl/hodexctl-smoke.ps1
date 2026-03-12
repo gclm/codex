@@ -83,8 +83,18 @@ try {
     Write-Host "==> Check PowerShell syntax"
     [void][System.Management.Automation.Language.Parser]::ParseFile($controllerPath, [ref]$null, [ref]$null)
 
-    Write-Host "==> Check help output"
+    Write-Host "==> Check graceful error output"
+    New-Item -ItemType Directory -Path $smokeStateDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $smokeCommandDir -Force | Out-Null
     $runner = Get-Runner
+    $gracefulErrorOutput = (& $runner -NoProfile -ExecutionPolicy Bypass -File $controllerPath downgrade -StateDir $smokeStateDir -CommandDir $smokeCommandDir 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 1) { throw "Expected exit code 1; got: $LASTEXITCODE" }
+    Assert-Contains -Text $gracefulErrorOutput -Expected "downgrade requires an explicit version"
+    if ($gracefulErrorOutput -like "*CategoryInfo*") { throw "Unexpected PowerShell CategoryInfo noise in error output" }
+    if ($gracefulErrorOutput -like "*FullyQualifiedErrorId*") { throw "Unexpected PowerShell FullyQualifiedErrorId noise in error output" }
+    if ($gracefulErrorOutput -like "*At line:*") { throw "Unexpected PowerShell location noise in error output" }
+
+    Write-Host "==> Check help output"
     $helpOutput = (& $runner -NoProfile -File $controllerPath -Help 2>&1 | Out-String)
     Assert-Contains -Text $helpOutput -Expected "Usage:"
     Assert-Contains -Text $helpOutput -Expected "hodexctl list"
@@ -313,7 +323,17 @@ try {
         New-Item -ItemType Directory -Path $releaseStateDir -Force | Out-Null
         New-Item -ItemType Directory -Path $releaseCommandDir -Force | Out-Null
 
-        $sourceExe = (Get-Command pwsh).Source
+        $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+        if ($pwsh) {
+            $sourceExe = $pwsh.Source
+        } else {
+            $tar = Get-Command tar -ErrorAction SilentlyContinue
+            if ($tar -and $tar.CommandType -eq "Application" -and -not [string]::IsNullOrWhiteSpace($tar.Source)) {
+                $sourceExe = $tar.Source
+            } else {
+                $sourceExe = (Get-Command powershell).Source
+            }
+        }
         Copy-Item $sourceExe (Join-Path $releaseDir "codex-x86_64-pc-windows-msvc.exe") -Force
         Copy-Item $sourceExe (Join-Path $releaseDir "codex-command-runner.exe") -Force
         Copy-Item $sourceExe (Join-Path $releaseDir "codex-windows-sandbox-setup.exe") -Force
@@ -361,6 +381,9 @@ try {
 
             $env:HODEX_RELEASE_BASE_URL = "http://127.0.0.1:$releasePort"
             $releaseInstallOutput = (& $runner -NoProfile -File $controllerPath install -Yes -NoPathUpdate -StateDir $releaseStateDir -CommandDir $releaseCommandDir 2>&1 | Out-String)
+            if ($releaseInstallOutput -notlike "*Install complete:*") {
+                throw "Release install failed unexpectedly:`n$releaseInstallOutput"
+            }
             Assert-Contains -Text $releaseInstallOutput -Expected "Install complete:"
             $releaseStatusOutput = (& $runner -NoProfile -File $controllerPath status -StateDir $releaseStateDir 2>&1 | Out-String)
             Assert-Contains -Text $releaseStatusOutput -Expected "Windows runtime components: complete"
@@ -491,7 +514,7 @@ Write-Output `$hodexSource
         Assert-Contains -Text $sourceListOutput -Expected "No source profiles recorded"
 
         Write-Host "==> Check source mode local loopback sync"
-        if ((Get-Command git -ErrorAction SilentlyContinue) -and (Get-Command cargo -ErrorAction SilentlyContinue) -and (Get-Command rustc -ErrorAction SilentlyContinue)) {
+        if ((Get-Command git -ErrorAction SilentlyContinue) -and (Get-Command cargo -ErrorAction SilentlyContinue) -and (Get-Command rustc -ErrorAction SilentlyContinue) -and (Get-Command link.exe -ErrorAction SilentlyContinue)) {
             New-Item -ItemType Directory -Path (Join-Path $sourceRepoDir "src") -Force | Out-Null
             New-Item -ItemType Directory -Path $smokeCommandDir -Force | Out-Null
 
@@ -566,7 +589,7 @@ fn main() {
             if (!(Test-Path $smokeSourceCheckoutDir)) { throw "Source checkout should not be deleted" }
             if (Test-Path (Join-Path $smokeCommandDir "hodexctl.cmd")) { throw "hodexctl wrapper was not deleted" }
         } else {
-            Write-Host "==> Missing git/cargo/rustc; skip source loopback integration test"
+            Write-Host "==> Missing git/cargo/rustc/link.exe; skip source loopback integration test"
         }
     } else {
         Write-Host "==> Non-Windows environment; skip runtime checks"

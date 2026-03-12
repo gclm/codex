@@ -77,10 +77,6 @@ if ($PSBoundParameters.ContainsKey("Name")) {
     Write-Warning "-Name is deprecated; use -Profile."
 }
 
-if ($Activate -or $NoActivate) {
-    throw "Source mode does not take over hodex; source checkout is for sync and toolchain management only."
-}
-
 function Show-Usage {
     $standaloneCommand = ".\hodexctl.ps1"
     @"
@@ -531,6 +527,13 @@ function Invoke-DownloadWithProgress {
     )
 
     Invoke-WithRetry -Label "release-download" -ScriptBlock {
+        if (-not ("System.Net.Http.HttpClient" -as [type])) {
+            try {
+                Add-Type -AssemblyName System.Net.Http
+            } catch {
+                Fail "Failed to load System.Net.Http; cannot download release assets."
+            }
+        }
         $client = [System.Net.Http.HttpClient]::new()
         $progressEnabled = [Environment]::UserInteractive -and -not [Console]::IsOutputRedirected
         $previousProgressPreference = $global:ProgressPreference
@@ -4505,6 +4508,9 @@ if (-not $env:HODEXCTL_SKIP_MAIN) {
     try {
         Ensure-LocalToolPaths
         Normalize-Parameters
+        if ($Activate -or $NoActivate) {
+            Fail "Source mode does not take over hodex; source checkout is for sync and toolchain management only."
+        }
         if ($script:RawSourceHelpRequest -or ($script:RequestedCommand -eq "source" -and $script:SourceAction -eq "help")) {
             Show-SourceUsage
             exit 0
@@ -4567,7 +4573,7 @@ if (-not $env:HODEXCTL_SKIP_MAIN) {
         if ([string]::IsNullOrWhiteSpace($message)) {
             $message = "Unknown error."
         }
-        Write-Error $message
+        [Console]::Out.WriteLine($message)
         exit 1
     }
 }
