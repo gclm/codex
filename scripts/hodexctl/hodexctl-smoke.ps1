@@ -26,6 +26,27 @@ function Get-Runner {
     return "powershell"
 }
 
+function Invoke-RunnerCapture {
+    param(
+        [string]$Runner,
+        [string[]]$ArgumentList
+    )
+
+    $stdoutPath = Join-Path $tempRoot ([System.Guid]::NewGuid().ToString("N") + ".stdout.txt")
+    $stderrPath = Join-Path $tempRoot ([System.Guid]::NewGuid().ToString("N") + ".stderr.txt")
+    try {
+        $process = Start-Process -FilePath $Runner -ArgumentList $ArgumentList -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            StdOut = if (Test-Path $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { "" }
+            StdErr = if (Test-Path $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { "" }
+        }
+    } finally {
+        Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function New-FakeSummaryAgent {
     param(
         [string]$BinDir,
@@ -87,12 +108,22 @@ try {
     New-Item -ItemType Directory -Path $smokeStateDir -Force | Out-Null
     New-Item -ItemType Directory -Path $smokeCommandDir -Force | Out-Null
     $runner = Get-Runner
-    $gracefulErrorOutput = (& $runner -NoProfile -ExecutionPolicy Bypass -File $controllerPath downgrade -StateDir $smokeStateDir -CommandDir $smokeCommandDir 2>&1 | Out-String)
-    if ($LASTEXITCODE -ne 1) { throw "Expected exit code 1; got: $LASTEXITCODE" }
-    Assert-Contains -Text $gracefulErrorOutput -Expected "downgrade requires an explicit version"
-    if ($gracefulErrorOutput -like "*CategoryInfo*") { throw "Unexpected PowerShell CategoryInfo noise in error output" }
-    if ($gracefulErrorOutput -like "*FullyQualifiedErrorId*") { throw "Unexpected PowerShell FullyQualifiedErrorId noise in error output" }
-    if ($gracefulErrorOutput -like "*At line:*") { throw "Unexpected PowerShell location noise in error output" }
+    $gracefulErrorResult = Invoke-RunnerCapture -Runner $runner -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $controllerPath,
+        "downgrade",
+        "-StateDir", $smokeStateDir,
+        "-CommandDir", $smokeCommandDir
+    )
+    if ($gracefulErrorResult.ExitCode -ne 1) { throw "Expected exit code 1; got: $($gracefulErrorResult.ExitCode)" }
+    if (-not [string]::IsNullOrWhiteSpace($gracefulErrorResult.StdOut)) {
+        throw "Expected empty stdout for graceful error path; got:`n$($gracefulErrorResult.StdOut)"
+    }
+    Assert-Contains -Text $gracefulErrorResult.StdErr -Expected "downgrade requires an explicit version"
+    if ($gracefulErrorResult.StdErr -like "*CategoryInfo*") { throw "Unexpected PowerShell CategoryInfo noise in error output" }
+    if ($gracefulErrorResult.StdErr -like "*FullyQualifiedErrorId*") { throw "Unexpected PowerShell FullyQualifiedErrorId noise in error output" }
+    if ($gracefulErrorResult.StdErr -like "*At line:*") { throw "Unexpected PowerShell location noise in error output" }
 
     Write-Host "==> Check help output"
     $helpOutput = (& $runner -NoProfile -File $controllerPath -Help 2>&1 | Out-String)

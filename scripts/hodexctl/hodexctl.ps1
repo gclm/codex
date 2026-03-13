@@ -4577,7 +4577,7 @@ if (-not $env:HODEXCTL_SKIP_MAIN) {
         if ([string]::IsNullOrWhiteSpace($message)) {
             $message = "Unknown error."
         }
-        [Console]::Out.WriteLine($message)
+        [Console]::Error.WriteLine($message)
         exit 1
     }
 }
