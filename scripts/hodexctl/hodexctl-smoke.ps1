@@ -211,11 +211,21 @@ try {
     }
 
     Write-Host "==> Check source mode refuses to take over hodex"
-    $activateOutput = (& $runner -NoProfile -File $controllerPath source install -Activate 2>&1 | Out-String)
-    if ($LASTEXITCODE -eq 0) {
+    $activateResult = Invoke-RunnerCapture -Runner $runner -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $controllerPath,
+        "source",
+        "install",
+        "-Activate"
+    )
+    if ($activateResult.ExitCode -eq 0) {
         throw "Source mode should not accept -Activate"
     }
-    Assert-Contains -Text $activateOutput -Expected "Source mode does not take over hodex"
+    if (-not [string]::IsNullOrWhiteSpace($activateResult.StdOut)) {
+        throw "Expected empty stdout for -Activate refusal; got:`n$($activateResult.StdOut)"
+    }
+    Assert-Contains -Text $activateResult.StdErr -Expected "Source mode does not take over hodex"
 
     Write-Host "==> Check manager-install does not fake hodex release"
     $env:HODEXCTL_SKIP_MAIN = "1"
@@ -534,9 +544,18 @@ Write-Output `$hodexSource
 
 	            Write-Host "==> Check Windows missing helper fails strictly"
 	            $env:HODEX_RELEASE_BASE_URL = "http://127.0.0.1:$brokenReleasePort"
-	            $brokenInstallOutput = (& $runner -NoProfile -File $controllerPath install -Yes -NoPathUpdate -StateDir (Join-Path $tempRoot 'broken-state') -CommandDir (Join-Path $tempRoot 'broken-command') 2>&1 | Out-String)
-	            if ($LASTEXITCODE -eq 0) { throw "Windows release install with missing helper should not succeed" }
-            Assert-Contains -Text $brokenInstallOutput -Expected "Windows release asset missing required helper"
+	            $brokenInstallResult = Invoke-RunnerCapture -Runner $runner -ArgumentList @(
+	                "-NoProfile",
+	                "-ExecutionPolicy", "Bypass",
+	                "-File", $controllerPath,
+	                "install",
+	                "-Yes",
+	                "-NoPathUpdate",
+	                "-StateDir", (Join-Path $tempRoot 'broken-state'),
+	                "-CommandDir", (Join-Path $tempRoot 'broken-command')
+	            )
+	            if ($brokenInstallResult.ExitCode -eq 0) { throw "Windows release install with missing helper should not succeed" }
+            Assert-Contains -Text $brokenInstallResult.StdErr -Expected "Windows release asset missing required helper"
         } finally {
             try { if ($releaseServer -and -not $releaseServer.HasExited) { $releaseServer.Kill() } } catch {}
             try { if ($brokenServer -and -not $brokenServer.HasExited) { $brokenServer.Kill() } } catch {}
